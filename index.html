@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USUSHIPPING — Smart Parcel Terminal</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono for terminal codes -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    animation: {
+                        'shake': 'shake 0.45s cubic-bezier(.36,.07,.19,.97) both',
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'float': 'float 3s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        shake: {
+                            '10%, 90%': { transform: 'translate3d(-2px, 0, 0)' },
+                            '20%, 80%': { transform: 'translate3d(4px, 0, 0)' },
+                            '30%, 50%, 70%': { transform: 'translate3d(-6px, 0, 0)' },
+                            '40%, 60%': { transform: 'translate3d(6px, 0, 0)' }
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-6px)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom 3D perspective & transitions for the locker door animation */
+        .locker-perspective {
+            perspective: 1000px;
+        }
+        .locker-door {
+            transform-origin: left center;
+            transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+            transform-style: preserve-3d;
+        }
+        .locker-open .locker-door {
+            transform: rotateY(-108deg);
+        }
+        /* Subtle industrial grid background */
+        .bg-terminal-grid {
+            background-size: 32px 32px;
+            background-image: 
+                linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        }
+        /* Prevent double-tap zoom on keypad buttons */
+        button {
+            touch-action: manipulation;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between bg-terminal-grid selection:bg-amber-500 selection:text-slate-950">
+
+    <!-- Top Industrial Header Bar -->
+    <header class="w-full border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-md sticky top-0 z-30">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
+            <!-- Brand Logo -->
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-extrabold">
+                    <!-- Custom Shipping Box / U Icon -->
+                    <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+                        <path d="m3.3 7 8.7 5 8.7-5"/>
+                        <path d="M12 22V12"/>
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-lg sm:text-xl font-extrabold tracking-tight text-white">USU<span class="text-amber-500">SHIPPING</span></span>
+                        <span class="hidden sm:inline-block text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">HUB-09</span>
+                    </div>
+                    <p class="text-xs text-slate-400 font-medium">Automated Parcel Pickup Terminal</p>
+                </div>
+            </div>
+
+            <!-- Right Status & Audio Controls -->
+            <div class="flex items-center gap-2.5 sm:gap-4">
+                <!-- Online Status Badge -->
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/90 border border-slate-700/80 text-xs font-medium text-slate-300">
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span id="status-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span id="status-dot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <span id="status-text" class="hidden sm:inline">TERMINAL READY</span>
+                    <span class="sm:hidden">ONLINE</span>
+                </div>
+
+                <!-- Sound Toggle Button -->
+                <button id="sound-toggle" type="button" aria-label="Toggle Terminal Audio" title="Toggle Sound Effects"
+                    class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500/50">
+                    <!-- Sound On Icon -->
+                    <svg id="icon-sound-on" class="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                    </svg>
+                    <!-- Sound Off Icon (Hidden by default) -->
+                    <svg id="icon-sound-off" class="w-5 h-5 text-slate-500 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                        <line x1="23" y1="9" x2="17" y2="15"/>
+                        <line x1="17" y1="9" x2="23" y2="15"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Terminal Interface -->
+    <main class="flex-1 flex items-center justify-center p-4 sm:p-6">
+        <div class="w-full max-w-4xl">
+
+            <!-- VIEW 1: PIN ENTRY TERMINAL -->
+            <section id="entry-view" class="bg-slate-900/90 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden backdrop-blur-sm transition-all duration-300">
+                <!-- Top Accent Strip -->
+                <div class="h-1.5 w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400"></div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12">
+                    <!-- Left Column: Instructions & 6-Digit Display -->
+                    <div class="lg:col-span-7 p-6 sm:p-8 lg:p-10 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-800">
+                        <div>
+                            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-mono font-semibold uppercase tracking-wider mb-4">
+                                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                    <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                </svg>
+                                Parcel Collection Verification
+                            </div>
+                            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                                Enter 6-Digit Pickup Code
+                            </h1>
+                            <p class="text-slate-400 text-sm sm:text-base mt-2 leading-relaxed">
+                                Type your USUSHIPPING delivery PIN using your keyboard or the terminal keypad to release your assigned compartment.
+                            </p>
+                        </div>
+
+                        <!-- 6-Digit PIN Display Container -->
+                        <div class="my-8">
+                            <div class="flex items-center justify-between mb-2.5">
+                                <span class="text-xs font-mono uppercase tracking-wider text-slate-400">Access PIN</span>
+                                <span id="digit-counter" class="text-xs font-mono text-slate-500">0 / 6 DIGITS</span>
+                            </div>
+
+                            <!-- Individual Digit Slots (Clickable to focus hidden input for mobile/desktop typing) -->
+                            <div id="pin-slots-container" onclick="focusHiddenInput()" class="grid grid-cols-6 gap-2 sm:gap-3 cursor-text">
+                                <div class="pin-slot h-14 sm:h-16 rounded-2xl bg-slate-950 border-2 border-slate-800 flex items-center justify-center font-mono text-2xl sm:text-3xl font-extrabold text-white transition-all duration-150 shadow-inner" data-index="0"></div>
+                                <div class="pin-slot h-14 sm:h-16 rounded-2xl bg-slate-950 border-2 border-slate-800 flex items-center justify-center font-mono text-2xl sm:text-3xl font-extrabold text-white transition-all duration-150 shadow-inner" data-index="1"></div>
+                                <div class="pin-slot h-14 sm:h-16 rounded-2xl bg-slate-950 border-2 border-slate-800 flex items-center justify-center font-mono text-2xl sm:text-3xl font-extrabold text-white transition-all duration-150 shadow-inner" data-index="2"></div>
+                                <div class="pin-slot h-14 sm:h-16 rounded-2xl bg-slate-950 border-2 border-slate-800 flex items-center justify-center font-mono text-2xl sm:text-3xl font-extrabold text-white transition-all duration-150 shadow-inner" data-index="3"></div>
+                                <div class="pin-slot h-14 sm:h-16 rounded-2xl bg-slate-950 border-2 border-slate-800 flex items-center justify-center font-mono text-2xl sm:text-3xl font-extrabold text-white transition-all duration-150 shadow-inner" data-index="4"></div>
+                                <div class="pin-slot h-14 sm:h-16 rounded-2xl bg-slate-950 border-2 border-slate-800 flex items-center justify-center font-mono text-2xl sm:text-3xl font-extrabold text-white transition-all duration-150 shadow-inner" data-index="5"></div>
+                            </div>
+
+                            <!-- Hidden Input for Native Keyboard Support -->
+                            <input id="hidden-pin-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" class="sr-only" aria-label="6-Digit Pickup Code">
+
+                            <!-- Error Message Banner -->
+                            <div id="error-banner" role="alert" class="mt-4 min-h-[44px] flex items-center">
+                                <div id="error-content" class="hidden w-full px-4 py-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs sm:text-sm font-medium flex items-center gap-2.5">
+                                    <svg class="w-5 h-5 text-rose-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <line x1="12" y1="8" x2="12" y2="12"/>
+                                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                                    </svg>
+                                    <span>Invalid Access Code — Please Try Again</span>
+                                </div>
+                                <div id="helper-hint" class="w-full flex items-center justify-between text-xs text-slate-500 px-1">
+                                    <span>Tip: Use keyboard keys <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">0-9</kbd> &amp; <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">Enter</kbd></span>
+                                    <span class="font-mono text-slate-600">SSL-256</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Bottom Terminal Metadata -->
+                        <div class="pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                                <span>Locker Bank: <strong class="text-slate-200 font-mono">SEC-B (01–24)</strong></span>
+                            </div>
+                            <span class="font-mono text-slate-500" id="live-clock">--:--:--</span>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Tactile Numeric Keypad -->
+                    <div class="lg:col-span-5 p-6 sm:p-8 bg-slate-950/60 flex flex-col justify-center">
+                        <div class="grid grid-cols-3 gap-2.5 sm:gap-3 max-w-xs mx-auto w-full">
+                            <!-- Digits 1-9 -->
+                            <button type="button" onclick="handleDigitPress('1')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">1</button>
+                            <button type="button" onclick="handleDigitPress('2')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">2</button>
+                            <button type="button" onclick="handleDigitPress('3')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">3</button>
+                            <button type="button" onclick="handleDigitPress('4')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">4</button>
+                            <button type="button" onclick="handleDigitPress('5')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">5</button>
+                            <button type="button" onclick="handleDigitPress('6')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">6</button>
+                            <button type="button" onclick="handleDigitPress('7')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">7</button>
+                            <button type="button" onclick="handleDigitPress('8')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">8</button>
+                            <button type="button" onclick="handleDigitPress('9')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">9</button>
+
+                            <!-- Clear Button -->
+                            <button type="button" onclick="handleClear()" class="h-14 sm:h-16 rounded-2xl bg-slate-900 hover:bg-rose-950/60 active:scale-95 border border-slate-800 hover:border-rose-500/40 text-slate-300 hover:text-rose-300 font-sans text-xs sm:text-sm font-bold uppercase tracking-wider shadow-md transition-all flex items-center justify-center">
+                                Clear
+                            </button>
+
+                            <!-- Digit 0 -->
+                            <button type="button" onclick="handleDigitPress('0')" class="keypad-btn h-14 sm:h-16 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 active:scale-95 border border-slate-700/80 text-white font-mono text-xl sm:text-2xl font-bold shadow-md transition-all">0</button>
+
+                            <!-- Backspace Button -->
+                            <button type="button" onclick="handleBackspace()" aria-label="Backspace" class="h-14 sm:h-16 rounded-2xl bg-slate-900 hover:bg-slate-800 active:scale-95 border border-slate-800 text-slate-300 hover:text-white shadow-md transition-all flex items-center justify-center">
+                                <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/>
+                                    <line x1="18" y1="9" x2="12" y2="15"/>
+                                    <line x1="12" y1="9" x2="18" y2="15"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Primary Submit / Verify Button -->
+                        <div class="max-w-xs mx-auto w-full mt-4">
+                            <button id="submit-btn" type="button" onclick="verifyCode()"
+                                class="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 active:scale-[0.98] text-slate-950 font-extrabold text-sm sm:text-base uppercase tracking-wider shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                                <span>Verify &amp; Unlock</span>
+                                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M5 12h14"/>
+                                    <path d="m12 5 7 7-7 7"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 2: UNLOCKED CELEBRATORY STATE -->
+            <section id="unlocked-view" class="hidden bg-slate-900/95 border-2 border-emerald-500/50 rounded-3xl shadow-2xl shadow-emerald-500/10 overflow-hidden backdrop-blur-md">
+                <!-- Emerald Top Glow Bar -->
+                <div class="h-2 w-full bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-500"></div>
+
+                <div class="p-6 sm:p-10 lg:p-12 text-center flex flex-col items-center">
+                    <!-- Verified Pill -->
+                    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs sm:text-sm font-mono font-bold uppercase tracking-widest mb-5">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                        ACCESS GRANTED • CODE #607143
+                    </div>
+
+                    <!-- Main Prominent Headline -->
+                    <h2 class="text-4xl sm:text-6xl font-black tracking-tight text-white drop-shadow-sm mb-2">
+                        OPEN THE BOX
+                    </h2>
+                    <p class="text-slate-300 text-base sm:text-lg max-w-md mx-auto">
+                        Compartment latch released. Please retrieve your parcel from <span class="text-emerald-400 font-bold font-mono">Locker #B-04</span> and close the door firmly.
+                    </p>
+
+                    <!-- Animated 3D Shipping Locker Visual -->
+                    <div id="locker-visual" class="my-8 sm:my-10 locker-perspective">
+                        <div class="relative w-56 h-56 sm:w-64 sm:h-64 mx-auto">
+                            <!-- Outer Locker Cabinet Frame -->
+                            <div class="absolute inset-0 rounded-3xl bg-slate-950 border-4 border-slate-700 shadow-2xl flex items-center justify-center overflow-hidden">
+                                <!-- Interior Illuminated Cavity -->
+                                <div class="w-full h-full bg-gradient-to-b from-emerald-950/60 via-slate-900 to-slate-950 flex flex-col items-center justify-center p-4 relative">
+                                    <!-- Interior LED Strip Glow -->
+                                    <div class="absolute top-0 inset-x-4 h-1.5 bg-emerald-400 rounded-b-full shadow-[0_0_20px_4px_rgba(52,211,153,0.7)]"></div>
+
+                                    <!-- Parcel Box Inside -->
+                                    <div class="animate-float flex flex-col items-center">
+                                        <div class="w-24 h-20 sm:w-28 sm:h-24 rounded-xl bg-gradient-to-br from-amber-300 via-amber-500 to-orange-600 p-0.5 shadow-xl shadow-amber-500/20">
+                                            <div class="w-full h-full rounded-[10px] bg-amber-500/90 flex flex-col items-center justify-center relative overflow-hidden">
+                                                <!-- Packing Tape Strip -->
+                                                <div class="w-6 h-full bg-amber-200/50 absolute inset-y-0"></div>
+                                                <!-- Shipping Label -->
+                                                <div class="relative z-10 bg-white/95 text-slate-900 px-2.5 py-1 rounded text-[10px] font-mono font-extrabold shadow-sm">
+                                                    USU-607143
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <span class="mt-3 text-xs font-mono font-bold text-emerald-400 tracking-wider uppercase">Ready for Pickup</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Swinging Locker Door -->
+                            <div class="locker-door absolute inset-0 rounded-3xl bg-gradient-to-br from-slate-800 to-slate-900 border-4 border-slate-600 shadow-2xl p-5 flex flex-col justify-between">
+                                <div class="flex items-center justify-between">
+                                    <span class="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 font-mono text-sm font-extrabold text-amber-400">
+                                        #B-04
+                                    </span>
+                                    <!-- Door Status LED -->
+                                    <span class="w-3.5 h-3.5 rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]"></span>
+                                </div>
+
+                                <!-- Industrial Ventilation Louvers -->
+                                <div class="space-y-1.5 my-auto px-4 opacity-50">
+                                    <div class="h-1.5 rounded-full bg-slate-950"></div>
+                                    <div class="h-1.5 rounded-full bg-slate-950"></div>
+                                    <div class="h-1.5 rounded-full bg-slate-950"></div>
+                                </div>
+
+                                <!-- Electronic Latch Handle -->
+                                <div class="flex items-center justify-end">
+                                    <div class="w-3 h-12 rounded-full bg-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.6)]"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Parcel & Compartment Details Card -->
+                    <div class="w-full max-w-lg grid grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-950/80 border border-slate-800 mb-8 text-left">
+                        <div>
+                            <div class="text-[11px] font-mono text-slate-500 uppercase">Compartment</div>
+                            <div class="text-sm sm:text-base font-mono font-bold text-white mt-0.5">LOCKER #B-04</div>
+                        </div>
+                        <div>
+                            <div class="text-[11px] font-mono text-slate-500 uppercase">Tracking ID</div>
+                            <div class="text-sm sm:text-base font-mono font-bold text-amber-400 mt-0.5">USU-88419</div>
+                        </div>
+                        <div>
+                            <div class="text-[11px] font-mono text-slate-500 uppercase">Latch Status</div>
+                            <div class="text-sm sm:text-base font-mono font-bold text-emerald-400 mt-0.5">RELEASED</div>
+                        </div>
+                    </div>
+
+                    <!-- Reset / Lock Again Button -->
+                    <button type="button" onclick="resetTerminal()"
+                        class="px-8 py-4 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-600 text-white font-bold text-sm sm:text-base tracking-wide transition-all flex items-center gap-2.5 shadow-lg cursor-pointer">
+                        <svg class="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        <span>Reset / Lock Again</span>
+                    </button>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full border-t border-slate-900 py-4 px-4 text-center text-xs text-slate-500">
+        <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+            <span>&copy; 2026 USUSHIPPING Logistics Network. Automated Terminal OS v4.2</span>
+            <span class="font-mono text-slate-600">24/7 SUPPORT: 1-800-USU-SHIP</span>
+        </div>
+    </footer>
+
+    <!-- Application Logic & Web Audio Synthesizer -->
+    <script>
+        // Target valid pickup code
+        const VALID_CODE = '607143';
+        const CODE_LENGTH = 6;
+
+        // Application State
+        let currentCode = '';
+        let isUnlocked = false;
+        let soundEnabled = true;
+        let audioCtx = null;
+
+        // DOM Elements
+        const entryView = document.getElementById('entry-view');
+        const unlockedView = document.getElementById('unlocked-view');
+        const lockerVisual = document.getElementById('locker-visual');
+        const pinSlots = document.querySelectorAll('.pin-slot');
+        const digitCounter = document.getElementById('digit-counter');
+        const hiddenInput = document.getElementById('hidden-pin-input');
+        const errorContent = document.getElementById('error-content');
+        const helperHint = document.getElementById('helper-hint');
+        const pinSlotsContainer = document.getElementById('pin-slots-container');
+        const statusDot = document.getElementById('status-dot');
+        const statusPing = document.getElementById('status-ping');
+        const statusText = document.getElementById('status-text');
+
+        /**
+         * Initialize Web Audio API Context on first user interaction
+         */
+        function initAudio() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    audioCtx = new AudioContext();
+                }
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        /**
+         * Synthesize terminal sound effects using Web Audio API (no external URLs)
+         * @param {'tap' | 'clear' | 'error' | 'unlock'} type
+         */
+        function playSound(type) {
+            if (!soundEnabled) return;
+            try {
+                initAudio();
+                if (!audioCtx) return;
+
+                const now = audioCtx.currentTime;
+
+                if (type === 'tap') {
+                    // Crisp tactile keypad beep
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(780, now);
+                    osc.frequency.exponentialRampToValueAtTime(520, now + 0.045);
+
+                    gain.gain.setValueAtTime(0.12, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.05);
+                } else if (type === 'clear') {
+                    // Soft low neutral tone
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(340, now);
+                    osc.frequency.exponentialRampToValueAtTime(220, now + 0.08);
+
+                    gain.gain.setValueAtTime(0.12, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.085);
+                } else if (type === 'error') {
+                    // Double low buzz for invalid code
+                    [0, 0.14].forEach((offset) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = 'sawtooth';
+                        osc.frequency.setValueAtTime(155, now + offset);
+                        osc.frequency.linearRampToValueAtTime(125, now + offset + 0.11);
+
+                        gain.gain.setValueAtTime(0.14, now + offset);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.11);
+
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(now + offset);
+                        osc.stop(now + offset + 0.12);
+                    });
+                } else if (type === 'unlock') {
+                    // Celebratory ascending chime + mechanical latch click
+                    const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+                    notes.forEach((freq, idx) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = 'triangle';
+                        const startTime = now + idx * 0.075;
+                        osc.frequency.setValueAtTime(freq, startTime);
+
+                        gain.gain.setValueAtTime(0.16, startTime);
+                        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.42);
+
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(startTime);
+                        osc.stop(startTime + 0.44);
+                    });
+                }
+            } catch (e) {
+                // Fail silently if browser blocks audio
+            }
+        }
+
+        /**
+         * Toggle audio mute state
+         */
+        document.getElementById('sound-toggle').addEventListener('click', () => {
+            soundEnabled = !soundEnabled;
+            document.getElementById('icon-sound-on').classList.toggle('hidden', !soundEnabled);
+            document.getElementById('icon-sound-off').classList.toggle('hidden', soundEnabled);
+            if (soundEnabled) playSound('tap');
+        });
+
+        /**
+         * Update the 6 visual digit boxes and counter
+         */
+        function renderPinDisplay() {
+            digitCounter.textContent = `${currentCode.length} / ${CODE_LENGTH} DIGITS`;
+            hiddenInput.value = currentCode;
+
+            pinSlots.forEach((slot, index) => {
+                const char = currentCode[index];
+                if (char) {
+                    slot.textContent = char;
+                    slot.classList.add('border-amber-500', 'bg-slate-900', 'text-amber-400', 'shadow-amber-500/10');
+                    slot.classList.remove('border-slate-800', 'bg-slate-950', 'text-white', 'ring-2', 'ring-amber-500/40');
+                } else {
+                    slot.textContent = '';
+                    slot.classList.remove('border-amber-500', 'bg-slate-900', 'text-amber-400', 'shadow-amber-500/10', 'ring-2', 'ring-amber-500/40');
+                    slot.classList.add('border-slate-800', 'bg-slate-950', 'text-white');
+
+                    // Highlight active cursor slot
+                    if (index === currentCode.length && !isUnlocked) {
+                        slot.classList.add('border-slate-600', 'ring-2', 'ring-amber-500/30');
+                    }
+                }
+            });
+        }
+
+        /**
+         * Hide any visible error message
+         */
+        function hideError() {
+            errorContent.classList.add('hidden');
+            helperHint.classList.remove('hidden');
+        }
+
+        /**
+         * Show invalid code error state with shake animation
+         */
+        function showError() {
+            playSound('error');
+            helperHint.classList.add('hidden');
+            errorContent.classList.remove('hidden');
+
+            // Trigger shake animation cleanly
+            pinSlotsContainer.classList.remove('animate-shake');
+            void pinSlotsContainer.offsetWidth; // Force reflow
+            pinSlotsContainer.classList.add('animate-shake');
+
+            // Flash red border briefly
+            pinSlots.forEach(slot => {
+                slot.classList.add('border-rose-500', 'text-rose-400');
+            });
+
+            setTimeout(() => {
+                currentCode = '';
+                renderPinDisplay();
+            }, 420);
+        }
+
+        /**
+         * Append a digit to the current PIN
+         */
+        function handleDigitPress(digit) {
+            if (isUnlocked) return;
+            hideError();
+
+            if (currentCode.length < CODE_LENGTH) {
+                currentCode += digit;
+                playSound('tap');
+                renderPinDisplay();
+
+                // Automatically verify once all 6 digits are entered
+                if (currentCode.length === CODE_LENGTH) {
+                    setTimeout(verifyCode, 180);
+                }
+            }
+        }
+
+        /**
+         * Remove last entered digit
+         */
+        function handleBackspace() {
+            if (isUnlocked || currentCode.length === 0) return;
+            hideError();
+            currentCode = currentCode.slice(0, -1);
+            playSound('clear');
+            renderPinDisplay();
+        }
+
+        /**
+         * Clear entire PIN entry
+         */
+        function handleClear() {
+            if (isUnlocked) return;
+            hideError();
+            currentCode = '';
+            playSound('clear');
+            renderPinDisplay();
+        }
+
+        /**
+         * Validate the entered code against 607143
+         */
+        function verifyCode() {
+            if (isUnlocked) return;
+
+            if (currentCode === VALID_CODE) {
+                triggerUnlockSuccess();
+            } else {
+                showError();
+            }
+        }
+
+        /**
+         * Transition terminal into the celebratory 'OPEN THE BOX' state
+         */
+        function triggerUnlockSuccess() {
+            isUnlocked = true;
+            playSound('unlock');
+
+            // Update header status badge
+            statusDot.classList.replace('bg-emerald-500', 'bg-amber-400');
+            statusPing.classList.replace('bg-emerald-400', 'bg-amber-300');
+            statusText.textContent = 'LOCKER #B-04 OPEN';
+
+            // Switch views
+            entryView.classList.add('hidden');
+            unlockedView.classList.remove('hidden');
+
+            // Trigger 3D door swing animation slightly after view appears
+            setTimeout(() => {
+                lockerVisual.classList.add('locker-open');
+            }, 150);
+        }
+
+        /**
+         * Lock compartment again and return to PIN entry screen
+         */
+        function resetTerminal() {
+            isUnlocked = false;
+            currentCode = '';
+            playSound('clear');
+
+            // Reset door animation
+            lockerVisual.classList.remove('locker-open');
+
+            // Restore header status badge
+            statusDot.classList.replace('bg-amber-400', 'bg-emerald-500');
+            statusPing.classList.replace('bg-amber-300', 'bg-emerald-400');
+            statusText.textContent = 'TERMINAL READY';
+
+            // Switch back to entry view
+            unlockedView.classList.add('hidden');
+            entryView.classList.remove('hidden');
+            hideError();
+            renderPinDisplay();
+        }
+
+        /**
+         * Focus hidden input when clicking digit boxes
+         */
+        function focusHiddenInput() {
+            if (!isUnlocked) {
+                hiddenInput.focus();
+            }
+        }
+
+        // Physical Keyboard Support
+        document.addEventListener('keydown', (event) => {
+            if (isUnlocked) {
+                if (event.key === 'Escape' || event.key === 'Enter') {
+                    resetTerminal();
+                }
+                return;
+            }
+
+            if (event.key >= '0' && event.key <= '9') {
+                event.preventDefault();
+                handleDigitPress(event.key);
+            } else if (event.key === 'Backspace') {
+                event.preventDefault();
+                handleBackspace();
+            } else if (event.key === 'Escape' || event.key === 'Delete') {
+                event.preventDefault();
+                handleClear();
+            } else if (event.key === 'Enter') {
+                event.preventDefault();
+                verifyCode();
+            }
+        });
+
+        // Handle paste or mobile virtual keyboard input on hidden input
+        hiddenInput.addEventListener('input', (e) => {
+            if (isUnlocked) return;
+            const sanitized = e.target.value.replace(/\D/g, '').slice(0, CODE_LENGTH);
+            currentCode = sanitized;
+            hideError();
+            renderPinDisplay();
+            if (currentCode.length === CODE_LENGTH) {
+                setTimeout(verifyCode, 180);
+            }
+        });
+
+        // Live Terminal Clock
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('live-clock').textContent = now.toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Initial render
+        renderPinDisplay();
+    </script>
+</body>
+</html>
